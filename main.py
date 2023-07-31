@@ -31,8 +31,8 @@ from camera_baseline.tridet.main import run_tridet
 def main(args):
     if args.neptune:
         run = neptune.init_run(
-        project="",
-        api_token=""
+        project="chetanjain0339/combined-300-epochs-final",
+        api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJjOGFiOWFlNi1jYjM5LTQxMGYtYTdjNS0wMTIzYWY0ZmNjOGUifQ==",
         )
     else:
         run = None
@@ -41,8 +41,11 @@ def main(args):
     config['init_rand_seed'] = args.seed
     config['devices'] = [args.gpu]
 
+    #ts = datetime.datetime.fromtimestamp(int(time.time()))
     ts = datetime.datetime.fromtimestamp(int(time.time()))
-    log_dir = os.path.join('logs', config['name'], str(ts))
+    formatted_ts = ts.strftime('%Y-%m-%d_%H-%M-%S')
+    log_dir = os.path.join('logs', config['name'] , str(formatted_ts))
+    #log_dir = os.path.join('logs', config['name'], str(ts))
     sys.stdout = Logger(os.path.join(log_dir, 'log.txt'))
 
     # save the current cfg
@@ -175,7 +178,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='./configs/60_frames_30_stride/deepconvlstm_short.yaml')
     parser.add_argument('--eval_type', default='split')
-    parser.add_argument('--neptune', default=False, type=bool) 
+    parser.add_argument('--neptune', default=True, type=bool) 
     parser.add_argument('--seed', default=42, type=int)       
     parser.add_argument('--ckpt-freq', default=-1, type=int)
     parser.add_argument('--resume', default='', type=str)

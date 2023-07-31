@@ -4,7 +4,7 @@ train_split: ['training']
 val_split: ['validation']
 devices: ['cuda:0']
 threshold_type: 'score'
-threshold: 0.225
+threshold: 0.4
 anno_json: [
   'data/wear/annotations/wear_split_1.json',
   'data/wear/annotations/wear_split_2.json',
@@ -20,7 +20,7 @@ dataset: {
   file_ext: .npy,
   feat_stride: 30,
   num_frames: 60,
-  input_dim: 2698,
+  input_dim: 2648,
   num_classes: 18,
   downsample_rate: 1,
   max_seq_len: 2304,
@@ -92,7 +92,7 @@ test_cfg: {
   pre_nms_topk: 5000,
   pre_nms_thresh: 0.001,
   iou_threshold: 0.1,
-  min_score: 0.001,
+  min_score: 0.2,
   max_seg_num: 2000,
   nms_method: 'soft',
   nms_sigma: 0.4,

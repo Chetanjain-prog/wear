@@ -7,7 +7,6 @@
 # E-Mail: marius.bock@uni-siegen.de
 # ------------------------------------------------------------------------
 import os
-
 import torch
 import torch.nn as nn
 import torch.utils.data
@@ -58,6 +57,7 @@ def run_tridet(val_sbjs, cfg, ckpt_folder, ckpt_freq, resume, rng_generator, run
     model = make_meta_arch(cfg['model']['model_name'], **cfg['model'])
     # not ideal for multi GPU training, ok for now
     model = nn.DataParallel(model, device_ids=cfg['devices'])
+    print("Number of learnable parameters for TriDet: {}".format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
     # optimizer
     optimizer = make_optimizer(model, cfg['opt'])
     # schedule
@@ -109,6 +109,7 @@ def run_tridet(val_sbjs, cfg, ckpt_folder, ckpt_freq, resume, rng_generator, run
         val_db_vars = val_dataset.get_attributes()
         det_eval = ANETdetection(val_dataset.json_anno, val_dataset.split[0], tiou_thresholds = val_db_vars['tiou_thresholds'])
         
+        #print("i value is ", i)
         v_loss, v_segments = valid_one_epoch(val_loader, model)
         v_preds, v_gt, _ = convert_segments_to_samples(v_segments, val_sens_data, cfg['dataset']['sampling_rate'], cfg['dataset']['include_null'], cfg['dataset']['has_null'])
         
@@ -125,6 +126,7 @@ def run_tridet(val_sbjs, cfg, ckpt_folder, ckpt_freq, resume, rng_generator, run
             np.save(os.path.join(ckpt_folder, 'unprocessed_results', 'v_preds_' + split_name), v_preds)
             np.save(os.path.join(ckpt_folder, 'unprocessed_results', 'v_gt_' + split_name), v_gt)
             v_results.to_csv(os.path.join(ckpt_folder, 'unprocessed_results', 'v_seg_' + split_name + '.csv'), index=False)
+
 
         val_mAP, _ = det_eval.evaluate(v_segments)
         conf_mat = confusion_matrix(v_gt, v_preds, normalize='true', labels=range(len(cfg['labels'])))

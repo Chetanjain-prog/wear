@@ -5,6 +5,47 @@ from torch import nn
 from .weight_init import trunc_normal_
 
 
+
+
+#new
+
+class DeepConvLSTM(nn.Module):
+
+    def __init__(
+            self, 
+            in_channels, 
+            out_channels, 
+            kernel_size, 
+            stride=1, 
+            padding=0, 
+            bias=True
+    ):
+        super().__init__()
+        self.conv = nn.Conv1d(
+            in_channels, out_channels * 4, kernel_size, stride=stride, padding=padding, bias=bias
+        )
+        self.lstm = nn.LSTM(out_channels, out_channels, batch_first=True)
+
+
+    
+    def forward(self, x, mask):
+        B, C, T = x.size()
+        x = self.conv(x)  # Apply convolution
+        x = x.permute(0, 2, 1)  # Reshape for LSTM
+        mask = mask.squeeze(1).transpose(1, 0)  # Transpose mask
+
+        # Apply LSTM
+        x = x.masked_fill(~mask.unsqueeze(-1), 0)  # Apply mask
+        x, _ = self.lstm(x)
+
+        x = x.transpose(1, 2).contiguous()  # Reshape after LSTM
+        return x, mask.unsqueeze(1)  # Reshape mask
+
+#new
+
+
+
+
 class MaskedConv1D(nn.Module):
     """
     Masked 1D convolution. Interface remains the same as Conv1d.

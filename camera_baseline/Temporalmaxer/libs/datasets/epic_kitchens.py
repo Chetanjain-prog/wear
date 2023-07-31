@@ -1,3 +1,5 @@
+# Modify from https://github.com/happyharrycn/actionformer_release/blob/main/libs/datasets/epic_kitchens.py
+
 import os
 import json
 import numpy as np
@@ -9,16 +11,13 @@ from torch.nn import functional as F
 from .datasets import register_dataset
 from .data_utils import truncate_feats
 
-@register_dataset("wear")
-class WearDataset(Dataset):
+@register_dataset("epic")
+class EpicKitchensDataset(Dataset):
     def __init__(
         self,
         is_training,     # if in training mode
         split,           # split, a tuple/list allowing concat of subsets
         feat_folder,     # folder for features
-        sens_folder,
-        sampling_rate,
-        include_null, 
         json_file,       # json file for annotations
         feat_stride,     # temporal stride of the feats
         num_frames,      # number of frames for each feat
@@ -27,35 +26,23 @@ class WearDataset(Dataset):
         max_seq_len,     # maximum sequence length during training
         trunc_thresh,    # threshold for truncate an action segment
         crop_ratio,      # a tuple (e.g., (0.9, 1.0)) for random cropping
-        tiou_thresholds, 
         input_dim,       # input feat dim
         num_classes,     # number of action categories
         file_prefix,     # feature file prefix if any
         file_ext,        # feature file extension if any
-        force_upsampling
+        force_upsampling # force to upsample to max_seq_len
     ):
         # file path
         assert os.path.exists(feat_folder) and os.path.exists(json_file)
         assert isinstance(split, tuple) or isinstance(split, list)
         assert crop_ratio == None or len(crop_ratio) == 2
         self.feat_folder = feat_folder
-        self.sens_folder = sens_folder
-        self.sampling_rate = sampling_rate
-        self.include_null = include_null
         if file_prefix is not None:
             self.file_prefix = file_prefix
         else:
             self.file_prefix = ''
         self.file_ext = file_ext
         self.json_file = json_file
-        self.db_attributes = {
-            'dataset_name': 'wear',
-            'tiou_thresholds': tiou_thresholds,
-            'empty_label_ids': []
-        }
-
-        # anet uses fixed length features, make sure there is no downsampling
-        self.force_upsampling = force_upsampling
 
         # split / training mode
         self.split = split
@@ -75,9 +62,29 @@ class WearDataset(Dataset):
 
         # load database and select the subset
         dict_db, label_dict = self._load_json_db(self.json_file)
-        assert len(label_dict) == num_classes
+        # "empty" noun categories on epic-kitchens
+        assert len(label_dict) <= num_classes
         self.data_list = dict_db
         self.label_dict = label_dict
+
+        # dataset specific attributes
+        empty_label_ids = self.find_empty_cls(label_dict, num_classes)
+        self.db_attributes = {
+            'dataset_name': 'epic-kitchens-100',
+            'tiou_thresholds': np.linspace(0.1, 0.5, 5),
+            'empty_label_ids': empty_label_ids
+        }
+
+    def find_empty_cls(self, label_dict, num_classes):
+        # find categories with out a data sample
+        if len(label_dict) == num_classes:
+            return []
+        empty_label_ids = []
+        label_ids = [v for _, v in label_dict.items()]
+        for id in range(num_classes):
+            if id not in label_ids:
+                empty_label_ids.append(id)
+        return empty_label_ids
 
     def get_attributes(self):
         return self.db_attributes
@@ -101,11 +108,6 @@ class WearDataset(Dataset):
             # skip the video if not in the split
             if value['subset'].lower() not in self.split:
                 continue
-            # or does not have the feature file
-            feat_file = os.path.join(self.feat_folder,
-                                     self.file_prefix + key + self.file_ext)
-            if not os.path.exists(feat_file):
-                continue
 
             # get fps if available
             if self.default_fps is not None:
@@ -123,13 +125,13 @@ class WearDataset(Dataset):
 
             # get annotations if available
             if ('annotations' in value) and (len(value['annotations']) > 0):
-                segments, labels = [], []
-                for act in value['annotations']:
-                    segments.append(act['segment'])
-                    labels.append([label_dict[act['label']]])
-
-                segments = np.asarray(segments, dtype=np.float32)
-                labels = np.squeeze(np.asarray(labels, dtype=np.int64), axis=1)
+                num_acts = len(value['annotations'])
+                segments = np.zeros([num_acts, 2], dtype=np.float32)
+                labels = np.zeros([num_acts, ], dtype=np.int64)
+                for idx, act in enumerate(value['annotations']):
+                    segments[idx][0] = act['segment'][0]
+                    segments[idx][1] = act['segment'][1]
+                    labels[idx] = label_dict[act['label']]
             else:
                 segments = None
                 labels = None
@@ -154,38 +156,19 @@ class WearDataset(Dataset):
         # load features
         filename = os.path.join(self.feat_folder,
                                 self.file_prefix + video_item['id'] + self.file_ext)
-        feats = np.load(filename).astype(np.float32)
+        with np.load(filename) as data:
+            feats = data['feats'].astype(np.float32)
 
         # deal with downsampling (= increased feat stride)
-        if self.force_upsampling:
-            feat_stride = float(
-                (feats.shape[0] - 1) * self.feat_stride + self.num_frames
-            ) / self.max_seq_len
-            # center the features
-            num_frames = feat_stride
-        else:
-            feat_stride, num_frames = self.feat_stride, self.num_frames
-            feats = feats[::self.downsample_rate, :]
-            feat_stride = self.feat_stride * self.downsample_rate
-        
-        feat_offset = 0.5 * num_frames / feat_stride
-
+        feats = feats[::self.downsample_rate, :]
+        feat_stride = self.feat_stride * self.downsample_rate
+        feat_offset = 0.5 * self.num_frames / feat_stride
         # T x C -> C x T
         feats = torch.from_numpy(np.ascontiguousarray(feats.transpose()))
 
-        # resize the features if needed
-        if (feats.shape[-1] != self.max_seq_len) and self.force_upsampling:
-            resize_feats = F.interpolate(
-                feats.unsqueeze(0),
-                size=self.max_seq_len,
-                mode='linear',
-                align_corners=False
-            )
-            feats = resize_feats.squeeze(0)
-
         # convert time stamp (in second) into temporal feature grids
         # ok to have small negative values here
-        if video_item['segments'] is not None :
+        if video_item['segments'] is not None:
             segments = torch.from_numpy(
                 video_item['segments'] * video_item['fps'] / feat_stride - feat_offset
             )
@@ -210,9 +193,3 @@ class WearDataset(Dataset):
             )
 
         return data_dict
-
-    def get_subjects(self):
-        sbjs = []
-        for _ in self.data_list:
-            sbjs.append(_['id'])
-        return sbjs

@@ -1,18 +1,20 @@
+# modify from https://github.com/happyharrycn/actionformer_release/blob/main/libs/utils/train_utils.py
+
 import os
-import pickle
-import random
 import time
-from copy import deepcopy
+import pickle
 
 import numpy as np
+import random
+from copy import deepcopy
+
 import torch
-import torch.backends.cudnn as cudnn
 import torch.optim as optim
-import pandas as pd
+import torch.backends.cudnn as cudnn
 
 from .lr_schedulers import LinearWarmupMultiStepLR, LinearWarmupCosineAnnealingLR
 from .postprocessing import postprocess_results
-from ..modeling import MaskedConv1D, Scale, AffineDropPath, LayerNorm
+from ..modeling import MaskedConv1D, Scale, LayerNorm
 
 
 ################################################################################
@@ -80,7 +82,7 @@ def make_optimizer(model, optimizer_config):
             elif pn.endswith('weight') and isinstance(m, blacklist_weight_modules):
                 # weights of blacklist modules will NOT be weight decayed
                 no_decay.add(fpn)
-            elif pn.endswith('scale') and isinstance(m, (Scale, AffineDropPath)):
+            elif pn.endswith('scale') and isinstance(m, (Scale, )):
                 # corner case of our scale layer
                 no_decay.add(fpn)
             elif pn.endswith('rel_pe'):
@@ -91,15 +93,18 @@ def make_optimizer(model, optimizer_config):
     param_dict = {pn: p for pn, p in model.named_parameters()}
     inter_params = decay & no_decay
     union_params = decay | no_decay
-    assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params),)
+    assert len(
+        inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
     assert len(param_dict.keys() - union_params) == 0, \
         "parameters %s were not separated into either decay/no_decay set!" \
-        % (str(param_dict.keys() - union_params),)
+        % (str(param_dict.keys() - union_params), )
 
     # create the pytorch optimizer object
     optim_groups = [
-        {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": optimizer_config['weight_decay']},
-        {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
+        {"params": [param_dict[pn] for pn in sorted(
+            list(decay))], "weight_decay": optimizer_config['weight_decay']},
+        {"params": [param_dict[pn]
+                    for pn in sorted(list(no_decay))], "weight_decay": 0.0},
     ]
 
     if optimizer_config["type"] == "SGD":
@@ -120,25 +125,23 @@ def make_optimizer(model, optimizer_config):
 
 
 def make_scheduler(
-        optimizer,
-        optimizer_config,
-        num_iters_per_epoch,
-        last_epoch=-1
+    optimizer,
+    optimizer_config,
+    num_iters_per_epoch,
+    last_epoch=-1
 ):
     """create scheduler
     return a supported scheduler
     All scheduler returned by this function should step every iteration
     """
     if optimizer_config["warmup"]:
-        max_epochs = optimizer_config["epochs"] + optimizer_config["warmup_epochs"]
+        max_epochs = optimizer_config["epochs"] + \
+            optimizer_config["warmup_epochs"]
         max_steps = max_epochs * num_iters_per_epoch
 
         # get warmup params
         warmup_epochs = optimizer_config["warmup_epochs"]
         warmup_steps = warmup_epochs * num_iters_per_epoch
-
-        # get eta min
-        eta_min = optimizer_config["eta_min"]
 
         # with linear warmup: call our custom schedulers
         if optimizer_config["schedule_type"] == "cosine":
@@ -147,13 +150,13 @@ def make_scheduler(
                 optimizer,
                 warmup_steps,
                 max_steps,
-                eta_min=eta_min,
                 last_epoch=last_epoch
             )
 
         elif optimizer_config["schedule_type"] == "multistep":
             # Multi step
-            steps = [num_iters_per_epoch * step for step in optimizer_config["schedule_steps"]]
+            steps = [num_iters_per_epoch *
+                     step for step in optimizer_config["schedule_steps"]]
             scheduler = LinearWarmupMultiStepLR(
                 optimizer,
                 warmup_steps,
@@ -168,22 +171,19 @@ def make_scheduler(
         max_epochs = optimizer_config["epochs"]
         max_steps = max_epochs * num_iters_per_epoch
 
-        # get eta min
-        eta_min = optimizer_config["eta_min"]
-
         # without warmup: call default schedulers
         if optimizer_config["schedule_type"] == "cosine":
             # step per iteration
             scheduler = optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
                 max_steps,
-                eta_min=eta_min,
                 last_epoch=last_epoch
             )
 
         elif optimizer_config["schedule_type"] == "multistep":
             # step every some epochs
-            steps = [num_iters_per_epoch * step for step in optimizer_config["schedule_steps"]]
+            steps = [num_iters_per_epoch *
+                     step for step in optimizer_config["schedule_steps"]]
             scheduler = optim.lr_scheduler.MultiStepLR(
                 optimizer,
                 steps,
@@ -247,14 +247,25 @@ class ModelEma(torch.nn.Module):
                 ema_v.copy_(update_fn(ema_v, model_v))
 
     def update(self, model):
-        self._update(model, update_fn=lambda e, m: self.decay * e + (1. - self.decay) * m)
+        self._update(model, update_fn=lambda e,
+                     m: self.decay * e + (1. - self.decay) * m)
 
     def set(self, model):
         self._update(model, update_fn=lambda e, m: m)
 
 
 ################################################################################
-def train_one_epoch(train_loader, model, optimizer, scheduler, model_ema=None, clip_grad_l2norm=-1):
+def train_one_epoch(
+    train_loader,
+    model,
+    optimizer,
+    scheduler,
+    curr_epoch,
+    model_ema=None,
+    clip_grad_l2norm=-1,
+    tb_writer=None,
+    print_freq=20
+):
     """Training the model for one epoch"""
     # set up meters
     batch_time = AverageMeter()
@@ -265,6 +276,7 @@ def train_one_epoch(train_loader, model, optimizer, scheduler, model_ema=None, c
     model.train()
 
     # main training loop
+    print("\n[Train]: Epoch {:d} started".format(curr_epoch))
     start = time.time()
     for iter_idx, video_list in enumerate(train_loader, 0):
         # zero out optim
@@ -274,7 +286,10 @@ def train_one_epoch(train_loader, model, optimizer, scheduler, model_ema=None, c
         losses['final_loss'].backward()
         # gradient cliping (to stabilize training if necessary)
         if clip_grad_l2norm > 0.0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(),clip_grad_l2norm)
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(),
+                clip_grad_l2norm
+            )
         # step optimizer / scheduler
         optimizer.step()
         scheduler.step()
@@ -282,24 +297,95 @@ def train_one_epoch(train_loader, model, optimizer, scheduler, model_ema=None, c
         if model_ema is not None:
             model_ema.update(model)
 
-        # measure elapsed time (sync all kernels)
-        torch.cuda.synchronize()
-        batch_time.update((time.time() - start))
-        start = time.time()
+        # printing (only check the stats when necessary to avoid extra cost)
+        if (iter_idx != 0) and (iter_idx % print_freq) == 0:
+            # measure elapsed time (sync all kernels)
+            torch.cuda.synchronize()
+            batch_time.update((time.time() - start) / print_freq)
+            start = time.time()
 
-        # track all losses
-        for key, value in losses.items():
-            # init meter if necessary
-            if key not in losses_tracker:
-                losses_tracker[key] = AverageMeter()
-            # update
-            losses_tracker[key].update(value.item())
+            # track all losses
+            for key, value in losses.items():
+                # init meter if necessary
+                if key not in losses_tracker:
+                    losses_tracker[key] = AverageMeter()
+                # update
+                losses_tracker[key].update(value.item())
 
-    return losses_tracker['final_loss'].avg
+            # log to tensor board
+            lr = scheduler.get_last_lr()[0]
+            global_step = curr_epoch * num_iters + iter_idx
+            if tb_writer is not None:
+                # learning rate (after stepping)
+                tb_writer.add_scalar(
+                    'train/learning_rate',
+                    lr,
+                    global_step
+                )
+                # all losses
+                tag_dict = {}
+                for key, value in losses_tracker.items():
+                    if key != "final_loss":
+                        tag_dict[key] = value.val
+                tb_writer.add_scalars(
+                    'train/all_losses',
+                    tag_dict,
+                    global_step
+                )
+                # final loss
+                tb_writer.add_scalar(
+                    'train/final_loss',
+                    losses_tracker['final_loss'].val,
+                    global_step
+                )
+                tb_writer.add_scalar(
+                    'train/num_pos',
+                    losses_tracker.pop('num_pos').val,
+                    global_step
+                )
+            # print to terminal
+            block1 = 'Epoch: [{:03d}][{:05d}/{:05d}]'.format(
+                curr_epoch, iter_idx, num_iters
+            )
+            block2 = 'Time {:.2f} ({:.2f})'.format(
+                batch_time.val, batch_time.avg
+            )
+            block3 = 'Loss {:.2f} ({:.2f})\n'.format(
+                losses_tracker['final_loss'].val,
+                losses_tracker['final_loss'].avg
+            )
+            block4 = ''
+            for key, value in losses_tracker.items():
+                if key != "final_loss":
+                    block4 += '\t{:s} {:.2f} ({:.2f})'.format(
+                        key, value.val, value.avg
+                    )
+
+            print('\t'.join([block1, block2, block3, block4]))
+
+    # finish up and print
+    lr = scheduler.get_last_lr()[0]
+    print("[Train]: Epoch {:d} finished with lr={:.8f}\n".format(
+        curr_epoch, lr))
+    return
 
 
-def valid_one_epoch(val_loader, model):
+def valid_one_epoch(
+    val_loader,
+    model,
+    curr_epoch,
+    ext_score_file=None,
+    evaluator=None,
+    output_file=None,
+    tb_writer=None,
+    print_freq=20
+):
     """Test the model on the validation set"""
+    # either evaluate the results or save the results
+    assert (evaluator is not None) or (output_file is not None)
+
+    # set up meters
+    batch_time = AverageMeter()
     # switch to evaluate mode
     model.eval()
     # dict for results (for our evaluation code)
@@ -311,14 +397,14 @@ def valid_one_epoch(val_loader, model):
         'score': []
     }
 
-
-    
     # loop over validation set
-    for _, video_list in enumerate(val_loader, 0):
+    start = time.time()
+    for iter_idx, video_list in enumerate(val_loader, 0):
         # forward the model (wo. grad)
         with torch.no_grad():
             output = model(video_list)
-            # upack the results into ANet format
+
+            # unpack the results into ANet format
             num_vids = len(output)
             for vid_idx in range(num_vids):
                 if output[vid_idx]['segments'].shape[0] > 0:
@@ -326,10 +412,23 @@ def valid_one_epoch(val_loader, model):
                         [output[vid_idx]['video_id']] *
                         output[vid_idx]['segments'].shape[0]
                     )
-                    results['t-start'].append(output[vid_idx]['segments'][:, 0])
+                    results['t-start'].append(output[vid_idx]
+                                              ['segments'][:, 0])
                     results['t-end'].append(output[vid_idx]['segments'][:, 1])
                     results['label'].append(output[vid_idx]['labels'])
                     results['score'].append(output[vid_idx]['scores'])
+
+        # printing
+        if (iter_idx != 0) and iter_idx % (print_freq) == 0:
+            # measure elapsed time (sync all kernels)
+            torch.cuda.synchronize()
+            batch_time.update((time.time() - start) / print_freq)
+            start = time.time()
+
+            # print timing
+            print('Test: [{0:05d}/{1:05d}]\t'
+                  'Time {batch_time.val:.2f} ({batch_time.avg:.2f})'.format(
+                      iter_idx, len(val_loader), batch_time=batch_time))
 
     # gather all stats and evaluate
     results['t-start'] = torch.cat(results['t-start']).numpy()
@@ -337,95 +436,19 @@ def valid_one_epoch(val_loader, model):
     results['label'] = torch.cat(results['label']).numpy()
     results['score'] = torch.cat(results['score']).numpy()
 
-    return 0.0, results
-    
-    '''
-    
-    
-    c_1= pd.read_csv('D:\\wear_main\\logs\\tridet\\2023-07-25_16-36-26\\unprocessed_results\\v_seg_wear_split_1.csv')
-    c_2= pd.read_csv('D:\\wear_main\\logs\\tridet\\2023-07-25_16-36-26\\unprocessed_results\\v_seg_wear_split_2.csv')
-    c_3= pd.read_csv('D:\\wear_main\\logs\\tridet\\2023-07-25_16-36-26\\unprocessed_results\\v_seg_wear_split_3.csv')
-    i_1= pd.read_csv('D:\\wear_main\\logs\\tridet\\2023-07-25_15-05-21\\unprocessed_results\\v_seg_wear_split_1.csv')
-    i_2= pd.read_csv('D:\\wear_main\\logs\\tridet\\2023-07-25_15-05-21\\unprocessed_results\\v_seg_wear_split_2.csv')
-    i_3= pd.read_csv('D:\\wear_main\\logs\\tridet\\2023-07-25_15-05-21\\unprocessed_results\\v_seg_wear_split_3.csv')
+    if evaluator is not None:
+        if ext_score_file is not None and isinstance(ext_score_file, str):
+            results = postprocess_results(results, ext_score_file)
+        # call the evaluator
+        _, mAP, _ = evaluator.evaluate(results, verbose=True)
+    else:
+        # dump to a pickle file that can be directly used for evaluation
+        with open(output_file, "wb") as f:
+            pickle.dump(results, f)
+        mAP = 0.0
 
-    
-    merged_df1 = pd.concat([c_1, i_1], ignore_index=True)
-    merged_df2 = pd.concat([c_2, i_2], ignore_index=True)
-    merged_df3 = pd.concat([c_3, i_3], ignore_index=True)
+    # log mAP to tb_writer
+    if tb_writer is not None:
+        tb_writer.add_scalar('validation/mAP', mAP*100, curr_epoch)
 
-    sorted_df1 = merged_df1.sort_values(['video-id', 'score'], ascending=[True, False])
-    top_2000_df1 = sorted_df1.groupby('video-id').head(2000)
-    
-    sorted_df2 = merged_df2.sort_values(['video-id', 'score'], ascending=[True, False])
-    top_2000_df2 = sorted_df2.groupby('video-id').head(2000)
-
-    sorted_df3 = merged_df3.sort_values(['video-id', 'score'], ascending=[True, False])
-    top_2000_df3 = sorted_df3.groupby('video-id').head(2000)
-
-    if(i==0):
-        df = top_2000_df1
-    elif(i==1):
-        df = top_2000_df2
-    elif(i==2):
-        df = top_2000_df3
-
-    video_ids = df['video-id'].values
-    t_starts = df['t-start'].values
-    t_ends = df['t-end'].values
-    labels = df['label'].values
-    scores = df['score'].values
-
-    # Add the values to the results dictionary
-    results['video-id'].extend(video_ids)
-    results['t-start'].extend(t_starts)
-    results['t-end'].extend(t_ends)
-    results['label'].extend(labels)
-    results['score'].extend(scores)
-
-    # Convert the lists to numpy arrays
-    results['video-id'] = np.array(results['video-id'])
-    results['t-start'] = np.array(results['t-start'])
-    results['t-end'] = np.array(results['t-end'])
-    results['label'] = np.array(results['label'])
-    results['score'] = np.array(results['score'])
-
-    return 0.0, results
-
-    
-    csv_file1 = 'D:\\wear_main\\logs\\actionformer\\2023-07-10_21-26-44\\unprocessed_results\\v_seg_wear_split_1.csv'
-    csv_file2 = 'D:\\wear_main\\logs\\actionformer\\2023-07-10_21-26-44\\unprocessed_results\\v_seg_wear_split_2.csv'
-    csv_file3 = 'D:\\wear_main\\logs\\actionformer\\2023-07-10_21-26-44\\unprocessed_results\\v_seg_wear_split_3.csv'
-    
-
-    if(i==0):
-        df = pd.read_csv('D:\\wear_main\\logs\\actionformer\\2023-07-10_21-26-44\\unprocessed_results\\v_seg_wear_split_1.csv')
-    elif(i==1):
-        df = pd.read_csv('D:\\wear_main\\logs\\actionformer\\2023-07-10_21-26-44\\unprocessed_results\\v_seg_wear_split_2.csv')
-    elif(i==2):
-        df = pd.read_csv('D:\\wear_main\\logs\\actionformer\\2023-07-10_21-26-44\\unprocessed_results\\v_seg_wear_split_3.csv')
-
-
-    # Extract the values from the DataFrame
-    video_ids = df['video-id'].values
-    t_starts = df['t-start'].values
-    t_ends = df['t-end'].values
-    labels = df['label'].values
-    scores = df['score'].values
-
-    # Add the values to the results dictionary
-    results['video-id'].extend(video_ids)
-    results['t-start'].extend(t_starts)
-    results['t-end'].extend(t_ends)
-    results['label'].extend(labels)
-    results['score'].extend(scores)
-
-    # Convert the lists to numpy arrays
-    results['video-id'] = np.array(results['video-id'])
-    results['t-start'] = np.array(results['t-start'])
-    results['t-end'] = np.array(results['t-end'])
-    results['label'] = np.array(results['label'])
-    results['score'] = np.array(results['score'])
-
-    return 0.0, results
-    '''
+    return mAP

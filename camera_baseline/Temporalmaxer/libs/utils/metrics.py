@@ -1,5 +1,5 @@
-# Modified from official EPIC-Kitchens action detection evaluation code
-# see https://github.com/epic-kitchens/C2-Action-Detection/blob/master/EvaluationCode/evaluate_detection_json_ek100.py
+# Modify from https://github.com/happyharrycn/actionformer_release/blob/main/libs/utils/metrics.py
+
 import os
 import json
 import pandas as pd
@@ -21,9 +21,9 @@ def remove_duplicate_annotations(ants, tol=1e-3):
             valid = False
         for p_event in valid_events:
             if ((abs(s-p_event['segment'][0]) <= tol)
-                and (abs(e-p_event['segment'][1]) <= tol)
-                and (l == p_event['label_id'])
-            ):
+                    and (abs(e-p_event['segment'][1]) <= tol)
+                    and (l == p_event['label_id'])
+                ):
                 valid = False
                 break
         if valid:
@@ -63,8 +63,45 @@ def load_gt_seg_from_json(json_file, split=None, label='label_id', label_offset=
 
     # move to pd dataframe
     gt_base = pd.DataFrame({
-        'video-id' : vids,
-        't-start' : starts,
+        'video-id': vids,
+        't-start': starts,
+        't-end': stops,
+        'label': labels
+    })
+
+    return gt_base
+
+
+def muses_load_gt_seg_from_json(json_file, split=None, label='label_id', label_offset=0):
+    # load json file
+    with open(json_file, "r", encoding="utf8") as f:
+        json_db = json.load(f)
+    class_names = json_db['classes']
+    json_db = json_db['database']
+
+    vids, starts, stops, labels = [], [], [], []
+    for k, v in json_db.items():
+
+        # filter based on split
+        if (split is not None) and v['subset'].lower() != split:
+            continue
+        ants = v['annotations']
+        # for each event, grab the start/end time and label
+        video_ann_count = 0
+        for event in ants:
+            label_ids = [class_names.index(_label)
+                         for _label in event['label']]
+            for _ in label_ids:
+                starts += [float(event['segment'][0])]
+                stops += [float(event['segment'][1])]
+                video_ann_count += 1
+            labels += label_ids
+        vids += [k] * video_ann_count
+
+    # move to pd dataframe
+    gt_base = pd.DataFrame({
+        'video-id': vids,
+        't-start': starts,
         't-end': stops,
         'label': labels
     })
@@ -99,8 +136,8 @@ def load_pred_seg_from_json(json_file, label='label_id', label_offset=0):
 
     # move to pd dataframe
     pred_base = pd.DataFrame({
-        'video-id' : vids,
-        't-start' : starts,
+        'video-id': vids,
+        't-start': starts,
         't-end': stops,
         'label': labels,
         'score': scores
@@ -135,12 +172,18 @@ class ANETdetection(object):
 
         # Import ground truth and predictions
         self.split = split
-        self.ground_truth = load_gt_seg_from_json(
-            ant_file, split=self.split, label=label, label_offset=label_offset)
+        try:
+            self.ground_truth = load_gt_seg_from_json(
+                ant_file, split=self.split, label=label, label_offset=label_offset)
+        except:
+            self.ground_truth = muses_load_gt_seg_from_json(
+                ant_file, split=self.split, label=label, label_offset=label_offset)
 
         # remove labels that does not exists in gt
-        self.activity_index = {j: i for i, j in enumerate(sorted(self.ground_truth['label'].unique()))}
-        self.ground_truth['label']=self.ground_truth['label'].replace(self.activity_index)
+        self.activity_index = {j: i for i, j in enumerate(
+            sorted(self.ground_truth['label'].unique()))}
+        self.ground_truth['label'] = self.ground_truth['label'].replace(
+            self.activity_index)
 
     def _get_predictions_with_label(self, prediction_by_label, label_name, cidx):
         """Get all predicitons of the given label. Return empty DataFrame if there
@@ -150,7 +193,8 @@ class ANETdetection(object):
             res = prediction_by_label.get_group(cidx).reset_index(drop=True)
             return res
         except:
-            #print('Warning: No predictions of label \'%s\' were provdied.' % label_name)
+            print('Warning: No predictions of label \'%s\' were provdied.' %
+                  label_name)
             return pd.DataFrame()
 
     def wrapper_compute_average_precision(self, preds):
@@ -164,20 +208,23 @@ class ANETdetection(object):
 
         results = Parallel(n_jobs=self.num_workers)(
             delayed(compute_average_precision_detection)(
-                ground_truth=ground_truth_by_label.get_group(cidx).reset_index(drop=True),
-                prediction=self._get_predictions_with_label(prediction_by_label, label_name, cidx),
+                ground_truth=ground_truth_by_label.get_group(
+                    cidx).reset_index(drop=True),
+                prediction=self._get_predictions_with_label(
+                    prediction_by_label, label_name, cidx),
                 tiou_thresholds=self.tiou_thresholds,
             ) for label_name, cidx in self.activity_index.items())
 
         for i, cidx in enumerate(self.activity_index.values()):
-            ap[:,cidx] = results[i]
+            ap[:, cidx] = results[i]
 
         return ap
 
     def wrapper_compute_topkx_recall(self, preds):
         """Computes Top-kx recall for each class in the subset.
         """
-        recall = np.zeros((len(self.tiou_thresholds), len(self.top_k), len(self.activity_index)))
+        recall = np.zeros((len(self.tiou_thresholds), len(
+            self.top_k), len(self.activity_index)))
 
         # Adaptation to query faster
         ground_truth_by_label = self.ground_truth.groupby('label')
@@ -185,18 +232,20 @@ class ANETdetection(object):
 
         results = Parallel(n_jobs=self.num_workers)(
             delayed(compute_topkx_recall_detection)(
-                ground_truth=ground_truth_by_label.get_group(cidx).reset_index(drop=True),
-                prediction=self._get_predictions_with_label(prediction_by_label, label_name, cidx),
+                ground_truth=ground_truth_by_label.get_group(
+                    cidx).reset_index(drop=True),
+                prediction=self._get_predictions_with_label(
+                    prediction_by_label, label_name, cidx),
                 tiou_thresholds=self.tiou_thresholds,
                 top_k=self.top_k,
             ) for label_name, cidx in self.activity_index.items())
 
         for i, cidx in enumerate(self.activity_index.values()):
-            recall[...,cidx] = results[i]
+            recall[..., cidx] = results[i]
 
         return recall
 
-    def evaluate(self, preds, threshold=0.0):
+    def evaluate(self, preds, verbose=True):
         """Evaluates a prediction file. For the detection task we measure the
         interpolated mean average precision to measure the performance of a
         method.
@@ -212,14 +261,12 @@ class ANETdetection(object):
             # move to pd dataframe
             # did not check dtype here, can accept both numpy / pytorch tensors
             preds = pd.DataFrame({
-                'video-id' : preds['video-id'],
-                't-start' : preds['t-start'].tolist(),
+                'video-id': preds['video-id'],
+                't-start': preds['t-start'].tolist(),
                 't-end': preds['t-end'].tolist(),
                 'label': preds['label'].tolist(),
                 'score': preds['score'].tolist()
             })
-
-        preds = preds[preds.score > threshold]
         # always reset ap
         self.ap = None
 
@@ -231,9 +278,26 @@ class ANETdetection(object):
         self.recall = self.wrapper_compute_topkx_recall(preds)
         mAP = self.ap.mean(axis=1)
         mRecall = self.recall.mean(axis=2)
+        average_mAP = mAP.mean()
+
+        # print results
+        if verbose:
+            # print the results
+            print('[RESULTS] Action detection results on {:s}.'.format(
+                self.dataset_name)
+            )
+            block = ''
+            for tiou, tiou_mAP, tiou_mRecall in zip(self.tiou_thresholds, mAP, mRecall):
+                block += '\n|tIoU = {:.2f}: '.format(tiou)
+                block += 'mAP = {:>4.2f} (%) '.format(tiou_mAP*100)
+                for idx, k in enumerate(self.top_k):
+                    block += 'Recall@{:d}x = {:>4.2f} (%) '.format(
+                        k, tiou_mRecall[idx]*100)
+            print(block)
+            print('Average mAP: {:>4.2f} (%)'.format(average_mAP*100))
 
         # return the results
-        return mAP, mRecall
+        return mAP, average_mAP, mRecall
 
 
 def compute_average_precision_detection(
@@ -265,7 +329,7 @@ def compute_average_precision_detection(
         return ap
 
     npos = float(len(ground_truth))
-    lock_gt = np.ones((len(tiou_thresholds),len(ground_truth))) * -1
+    lock_gt = np.ones((len(tiou_thresholds), len(ground_truth))) * -1
     # Sort predictions by decreasing score order.
     sort_idx = prediction['score'].values.argsort()[::-1]
     prediction = prediction.loc[sort_idx].reset_index(drop=True)
@@ -282,7 +346,8 @@ def compute_average_precision_detection(
 
         try:
             # Check if there is at least one ground truth in the video associated.
-            ground_truth_videoid = ground_truth_gbvn.get_group(this_pred['video-id'])
+            ground_truth_videoid = ground_truth_gbvn.get_group(
+                this_pred['video-id'])
         except Exception as e:
             fp[:, idx] = 1
             continue
@@ -314,7 +379,8 @@ def compute_average_precision_detection(
     precision_cumsum = tp_cumsum / (tp_cumsum + fp_cumsum)
 
     for tidx in range(len(tiou_thresholds)):
-        ap[tidx] = interpolated_prec_rec(precision_cumsum[tidx,:], recall_cumsum[tidx,:])
+        ap[tidx] = interpolated_prec_rec(
+            precision_cumsum[tidx, :], recall_cumsum[tidx, :])
 
     return ap
 
@@ -374,7 +440,7 @@ def compute_topkx_recall_detection(
         top_kx_idx = score_sort_idx[:max(top_k) * len(this_gt)]
         tiou_arr = k_segment_iou(this_pred[['t-start', 't-end']].values[top_kx_idx],
                                  this_gt[['t-start', 't-end']].values)
-            
+
         for tidx, tiou_thr in enumerate(tiou_thresholds):
             for kidx, k in enumerate(top_k):
                 tiou = tiou_arr[:k * len(this_gt)]
@@ -387,7 +453,7 @@ def compute_topkx_recall_detection(
 
 def k_segment_iou(target_segments, candidate_segments):
     return np.stack(
-        [segment_iou(target_segment, candidate_segments) \
+        [segment_iou(target_segment, candidate_segments)
             for target_segment in target_segments]
     )
 
@@ -412,7 +478,7 @@ def segment_iou(target_segment, candidate_segments):
     segments_intersection = (tt2 - tt1).clip(0)
     # Segment union.
     segments_union = (candidate_segments[:, 1] - candidate_segments[:, 0]) \
-                     + (target_segment[1] - target_segment[0]) - segments_intersection
+        + (target_segment[1] - target_segment[0]) - segments_intersection
     # Compute overlap as the ratio of the intersection
     # over union of two segments.
     tIoU = segments_intersection.astype(float) / segments_union

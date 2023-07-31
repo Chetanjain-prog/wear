@@ -110,7 +110,8 @@ def run_actionformer(val_sbjs, cfg, ckpt_folder, ckpt_freq, resume, rng_generato
         det_eval = ANETdetection(val_dataset.json_anno, val_dataset.split[0], tiou_thresholds = val_db_vars['tiou_thresholds'])
         
         v_loss, v_segments = valid_one_epoch(val_loader, model)
-        v_preds, v_gt, _ = convert_segments_to_samples(v_segments, val_sens_data, cfg['dataset']['sampling_rate'], cfg['dataset']['include_null'], cfg['dataset']['has_null'])
+        print(v_segments)
+        v_preds, v_gt, v_scores = convert_segments_to_samples(v_segments, val_sens_data, cfg['dataset']['sampling_rate'], cfg['dataset']['include_null'], cfg['dataset']['has_null'])
         
         if ((epoch + 1) == max_epochs):
             # save raw results (for later postprocessing)
@@ -156,4 +157,4 @@ def run_actionformer(val_sbjs, cfg, ckpt_folder, ckpt_freq, resume, rng_generato
             for tiou, tiou_mAP in zip(cfg['dataset']['tiou_thresholds'], val_mAP):
                     run[split_name].append({'mAP@' + str(tiou): tiou_mAP}, step=epoch)
 
-    return t_losses, v_losses, val_mAP, v_preds, v_gt 
+    return t_losses, v_losses, val_mAP, v_preds, v_gt, v_scores

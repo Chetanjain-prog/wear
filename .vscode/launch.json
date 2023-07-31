@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Debug Script",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/main.py",
+        "console": "integratedTerminal",
+        "args": [
+          "--config",
+          "./configs/60_frames_30_stride/tridet_combined.yaml",
+          "--seed",
+          "1",
+          "--eval_type",
+          "split"
+        ],
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PATH": "${env:PATH}",
+          "CONDA_DEFAULT_ENV": "wear"
+        },
+        "envFile": "${workspaceFolder}/.env"
+      }
+    ]
+  }
+  

@@ -135,13 +135,60 @@ def convert_samples_to_segments(ids, labels, sampling_rate):
     }
 
 def convert_segments_to_samples(segments, sens, sampling_rate, include_null=True, has_null=True, threshold_type='score', threshold=0.0):
+    '''
+    c_1= pd.read_csv('D:\\wear_main\\logs\\tridet\\2023-07-11_11-40-33\\unprocessed_results\\v_seg_wear_split_1.csv')
+    c_2= pd.read_csv('D:\\wear_main\\logs\\tridet\\2023-07-11_11-40-33\\unprocessed_results\\v_seg_wear_split_2.csv')
+    c_3= pd.read_csv('D:\\wear_main\\logs\\tridet\\2023-07-11_11-40-33\\unprocessed_results\\v_seg_wear_split_3.csv')
+    i_1= pd.read_csv('D:\\wear_main\\logs\\tridet\\2023-07-11_14-50-58\\unprocessed_results\\v_seg_wear_split_1.csv')
+    i_2= pd.read_csv('D:\\wear_main\\logs\\tridet\\2023-07-11_14-50-58\\unprocessed_results\\v_seg_wear_split_1.csv')
+    i_3= pd.read_csv('D:\\wear_main\\logs\\tridet\\2023-07-11_14-50-58\\unprocessed_results\\v_seg_wear_split_1.csv')
+
+    merged_df1 = pd.concat([c_1, i_1], ignore_index=True)
+    merged_df2 = pd.concat([c_2, i_2], ignore_index=True)
+    merged_df3 = pd.concat([c_3, i_3], ignore_index=True)
+
+    sorted_df1 = merged_df1.sort_values(['video-id', 'score'], ascending=[True, False])
+    top_2000_df1 = sorted_df1.groupby('video-id').head(2000)
+    
+    sorted_df2 = merged_df2.sort_values(['video-id', 'score'], ascending=[True, False])
+    top_2000_df2 = sorted_df2.groupby('video-id').head(2000)
+
+    sorted_df3 = merged_df3.sort_values(['video-id', 'score'], ascending=[True, False])
+    top_2000_df3 = sorted_df3.groupby('video-id').head(2000)
+
+    
+    if(i==0):
+        segments_df = pd.read_csv('D:\\wear_main\\logs\\actionformer\\2023-07-10_21-26-44\\unprocessed_results\\v_seg_wear_split_1.csv')
+    elif(i==1):
+        segments_df = pd.read_csv('D:\\wear_main\\logs\\actionformer\\2023-07-10_21-26-44\\unprocessed_results\\v_seg_wear_split_2.csv')
+    elif(i==2):
+        segments_df = pd.read_csv('D:\\wear_main\\logs\\actionformer\\2023-07-10_21-26-44\\unprocessed_results\\v_seg_wear_split_3.csv')
+   
+    segments_df = segments_df.rename(columns={'video-id': 'video_id', 't-start': 't_start', 't-end': 't_end'})
+    segments_df = segments_df[['video_id', 't_start', 't_end', 'label', 'score']]
+    
+
+    
+    if(i==0):
+        segments_df = top_2000_df1
+    elif(i==1):
+        segments_df = top_2000_df2
+    elif(i==2):
+        segments_df = top_2000_df3
+   
+    segments_df = segments_df.rename(columns={'video-id': 'video_id', 't-start': 't_start', 't-end': 't_end'})
+    segments_df = segments_df[['video_id', 't_start', 't_end', 'label', 'score']]
+    '''
     segments_df = pd.DataFrame({
         'video_id' : segments['video-id'],
         't_start' : segments['t-start'].tolist(),
         't_end': segments['t-end'].tolist(),
         'label': segments['label'].tolist(),
-        'score': segments['score'].tolist()
+        'score': segments['score'].tolist(),
+        #'prediction_probs': segments['prediction_probs'].tolist()
         })
+
+    
     preds = np.array([])
     gt = np.array([])
     scores = np.array([])
